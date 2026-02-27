@@ -148,8 +148,8 @@
 
 <header>
   <div class="ornament">✦</div>
-  <h1>Saat-i Osmanî</h1>
-  <p class="sub">The Ottoman Temporal Hour</p>
+  <h1>Ottoman Clock</h1>
+  <p class="sub">Temporal Hours</p>
   <div class="ornament">✦</div>
 </header>
 
@@ -180,27 +180,32 @@
 <script>
 // ─── Sun calculation ───────────────────────────────────────────────────────
 function sunTimes(date, lat, lon) {
-  // Use the NOAA/Wikipedia algorithm anchored entirely in UTC Julian days
-  // so timezone never contaminates the arithmetic.
-  const JD = date.getTime() / 86400000 + 2440587.5;
+  // Anchor to LOCAL calendar date (not UTC date) so that e.g. 8 AM in New York
+  // (UTC-5) correctly uses today's date rather than slipping to yesterday UTC.
+  // We compute local midnight in ms, then work in Julian days from there.
+  const localMidnight = new Date(date);
+  localMidnight.setHours(0, 0, 0, 0);
+  // Julian day for local noon (use noon to stay well clear of DST boundaries)
+  const localNoonMs = localMidnight.getTime() + 12 * 3600000;
+  const JD = localNoonMs / 86400000 + 2440587.5;
 
-  // Julian day number for noon UTC on the given date
-  const Jdate = Math.floor(JD) + 0.5;
-  const n = Jdate - 2451545.0;
+  // n = days since J2000.0 (anchored to local noon)
+  const n = JD - 2451545.0;
 
   // Solar mean anomaly (deg)
-  const M_deg = (357.5291 + 0.98560028 * n) % 360;
+  const M_deg = ((357.5291 + 0.98560028 * n) % 360 + 360) % 360;
   const M = M_deg * Math.PI / 180;
 
   // Equation of centre (deg)
   const C = 1.9148 * Math.sin(M) + 0.0200 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M);
 
   // Ecliptic longitude (deg)
-  const lambda_deg = (M_deg + C + 180 + 102.9372) % 360;
+  const lambda_deg = ((M_deg + C + 180 + 102.9372) % 360 + 360) % 360;
   const lambda = lambda_deg * Math.PI / 180;
 
-  // Solar transit (Julian day, UTC)
-  const Jnoon = 2451545.0 + 0.0009 + ((-lon) / 360) + n
+  // Solar transit: Julian day of solar noon at this longitude (UTC)
+  // lon offset: positive lon = east of Greenwich = solar noon earlier in UTC
+  const Jnoon = 2451545.0 + 0.0009 + ((-lon) / 360) + Math.round(n - (-lon)/360)
               + 0.0053 * Math.sin(M)
               - 0.0069 * Math.sin(2 * lambda);
 
@@ -208,14 +213,14 @@ function sunTimes(date, lat, lon) {
   const sinDec = Math.sin(lambda) * Math.sin(23.4397 * Math.PI / 180);
   const dec = Math.asin(sinDec);
 
-  // Hour angle
+  // Hour angle for sunrise/sunset (accounting for atmospheric refraction: -0.8333 deg)
   const latR = lat * Math.PI / 180;
   const cosH = (Math.sin(-0.8333 * Math.PI / 180) - Math.sin(latR) * sinDec)
              / (Math.cos(latR) * Math.cos(dec));
   if (cosH > 1 || cosH < -1) return null;
   const H_deg = Math.acos(cosH) * 180 / Math.PI;
 
-  // Rise/set as Julian days (UTC), convert to JS Date
+  // Convert Julian days back to JS timestamps
   const toMs = jd => (jd - 2440587.5) * 86400000;
   return {
     rise: new Date(toMs(Jnoon - H_deg / 360)),
